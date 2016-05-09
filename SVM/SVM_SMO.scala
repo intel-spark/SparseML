@@ -1,21 +1,13 @@
 package ml.features
 
-import org.apache.log4j.Level
-import org.apache.log4j.Logger
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkContext
-import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.util.MLUtils
-import org.apache.spark.mllib.util.MLUtils
-import org.apache.spark.rdd.RDD
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
-import _root_.scala.util.Random
+import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
 /**
@@ -23,35 +15,52 @@ import scala.util.Random
  */
 class SVM_SMO extends Serializable {
 
-  import SVM_SMO._
+  import ml.features.SVM_SMO._
 
-  def train(dataset: RDD[LabeledPoint]): SVM_SMOModel = {
+  private var kernelType = "linear"
+
+  def setKernelType(value: String): this.type = {
+    kernelType = value
+    this
+  }
+
+  def train(dataset: RDD[LabeledPoint]): SVMModel = {
 
     val subModels = dataset.mapPartitions{ iter =>
       val model = train(iter.toArray)
       Iterator(model)
     }.collect()
 
-    val count = subModels.length
-    val w = subModels.map(_.weight).transpose.map(_.sum).map(d => d / count)
-    val b = subModels.map(_.b).sum / count
+    if (subModels.head.isInstanceOf[SVM_LinearModel]) {
+      val count = subModels.length
+      val w = subModels.map(_.asInstanceOf[SVM_LinearModel].weight).transpose.map(_.sum).map(d => d / count)
+      val b = subModels.map(_.asInstanceOf[SVM_LinearModel].b).sum / count
+      new SVM_LinearModel(w, b)
+    }
+    else {
+      val count = subModels.length
+      val alphaArray = new ArrayBuffer[Double]
+      val alpha = subModels.map(_.asInstanceOf[SVM_RBFModel].alpha).foreach( arr => alphaArray ++= arr)
+      val dataArray = new ArrayBuffer[LabeledPoint]
+      val vectors = subModels.map(_.asInstanceOf[SVM_RBFModel].data).foreach( arr => dataArray ++= arr)
 
-    new SVM_SMOModel(w, b)
+      val b = subModels.map(_.asInstanceOf[SVM_RBFModel].b).sum / count
+      new SVM_RBFModel(alphaArray.toArray, dataArray.toArray, b)
+    }
   }
 
 
-  def train(dataset: Array[LabeledPoint]): SVM_SMOModel = {
+  def train(dataset: Array[LabeledPoint]): SVMModel = {
     val data = dataset
 
     val labels = data.map(_.label)
-    var C = 1.0; // C value. Decrease for more regularization
-    var tol =  1e-4; // numerical tolerance. Don't touch unless you're pro
-    var maxiter = 2; // max number of iterations
-    var numpasses = 10; // how many passes over data with no change before we halt? Increase for more precision.
+    val C = 1.0; // C value. Decrease for more regularization
+    val tol =  1e-4; // numerical tolerance. Don't touch unless you're pro
+    val maxIter = 2; // max number of iterations
+    val numPasses = 10; // how many passes over data with no change before we halt? Increase for more precision.
 
     // instantiate kernel according to options. kernel can be given as string or as a custom function
-    val kernel = linearKernel
-    var kernelType = "linear"
+    val kernel = if(kernelType == "linear") linearKernel else RBFKernal
 
     val N = data.length
     val D = data(0).features.size
@@ -62,7 +71,7 @@ class SVM_SMO extends Serializable {
     var passes = 0
     def kernelResult = (i: Int, j: Int) => kernel(data(i).features, data(j).features)
 
-    while(passes < numpasses && iter < maxiter) {
+    while(passes < numPasses && iter < maxIter) {
       var alphaChanged = 0
       for (i <- 0 until N) {
         val Errori = marginOne(data(i).features, alpha, data, b) - data(i).label
@@ -98,7 +107,6 @@ class SVM_SMO extends Serializable {
               var newaj = aj - labels(j) * (Errori - Ej) / eta
               if (newaj > H) newaj = H
               if (newaj < L) newaj = L
-              println(aj-newaj)
               if (Math.abs(aj - newaj) < 1e-9) {} else {
                 alpha(j) = newaj
                 val newai = ai + labels(i) * labels(j) * (aj - newaj)
@@ -124,16 +132,29 @@ class SVM_SMO extends Serializable {
       if(alphaChanged == 0) passes+= 1
       else passes= 0
     }
-    val w = new Array[Double](D)
-    for(j <- 0 until D) {
-      var s= 0.0
-      for(i <- 0 until N) {
-        s+= alpha(i) * labels(i) * data(i).features(j)
-      }
-      w(j) = s
-    }
 
-    new SVM_SMOModel(w, b)
+
+    if(kernelType == "linear"){
+      val w = new Array[Double](D)
+      for(j <- 0 until D) {
+        var s= 0.0
+        for(i <- 0 until N) {
+          s+= alpha(i) * labels(i) * data(i).features(j)
+        }
+        w(j) = s
+      }
+      new SVM_LinearModel(w, b)
+    }
+    else{
+      // okay, we need to retain all the support vectors in the training data,
+      // we can't just get away with computing the weights and throwing it out
+
+      // But! We only need to store the support vectors for evaluation of testing
+      // instances. So filter here based on this.alpha[i]. The training data
+      // for which this.alpha[i] = 0 is irrelevant for future.
+      val supportingVectors = data.zip(alpha).filter(p => p._2 > 1e-7)
+      new SVM_RBFModel(supportingVectors.map(_._2), supportingVectors.map(_._1), b)
+    }
   }
 }
 
@@ -145,9 +166,11 @@ object SVM_SMO  extends Serializable {
     val conf = new SparkConf().setAppName("ssss").setMaster("local[8]")
     val sc = new SparkContext(conf)
     val data = MLUtils.loadLibSVMFile(sc, "data/mllib/sample_libsvm_data.txt")
-      .map(p => new LabeledPoint( if(p.label == 0) -1.0 else 1.0, p.features)).repartition(8)
+      .map(p => new LabeledPoint( if(p.label == 0) -1.0 else 1.0, p.features)).repartition(4)
 
-    val model = new SVM_SMO().train(data)
+    val model = new SVM_SMO()
+      .setKernelType("rbf")
+      .train(data)
 
     println("total: " + data.collect().length)
     val correct = data.collect().map(d => if(model.predict(d.features) == d.label) 1 else 0).sum
@@ -163,7 +186,7 @@ object SVM_SMO  extends Serializable {
 
   def RBFKernal = (v1: Vector, v2: Vector) => {
     val sigma = 0.5
-    var s=0
+    var s = 0D
     for(q <- 0 until v1.size) { s += (v1(q) - v2(q)) * (v1(q) - v2(q)) }
     Math.exp(- s / (2.0 * sigma * sigma))
   }
@@ -176,9 +199,20 @@ object SVM_SMO  extends Serializable {
   }
 }
 
-class SVM_SMOModel (val weight: Array[Double], val b: Double)  extends Serializable {
+class SVM_LinearModel (val weight: Array[Double], val b: Double) extends SVMModel with Serializable {
   def predict(v: Vector): Double = {
     val value = v.toArray.zip(weight).map{ case (d1, d2) => d1 * d2 }.sum + b
     if(value > 0) 1 else -1
   }
+}
+
+class SVM_RBFModel (val alpha: Array[Double], val data: Array[LabeledPoint], val b: Double) extends SVMModel with Serializable {
+  def predict(v: Vector): Double = {
+    val value = SVM_SMO.marginOne(v, alpha, data, b)
+    if(value > 0) 1 else -1
+  }
+}
+
+abstract class SVMModel {
+  def predict(v: Vector): Double
 }
