@@ -1,38 +1,18 @@
 package org.apache.spark.ml.classification
 
-import org.apache.log4j.Level
-import org.apache.log4j.Logger
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.annotation.Since
-import org.apache.spark.annotation.Since
-import org.apache.spark.ml._
-import org.apache.spark.ml.param.Param
-import org.apache.spark.ml.param.ParamMap
-import org.apache.spark.ml.param.ParamValidators
-import org.apache.spark.ml.param.shared.HasMaxIter
-import org.apache.spark.ml.param.shared.HasSeed
-import org.apache.spark.ml.param.shared.HasStepSize
-import org.apache.spark.ml.param.shared.HasTol
 import org.apache.spark.ml.param.shared.{HasStepSize, HasTol, HasMaxIter, HasSeed}
 import org.apache.spark.ml.util.Identifiable
-import org.apache.spark.ml.util.Identifiable
-import org.apache.spark.ml.{Predictor, PredictorParams, PredictionModel}
+import org.apache.spark.ml.{PredictorParams, Predictor, PredictionModel}
 import org.apache.spark.ml.param._
-import org.apache.spark.mllib.linalg.Vector
-import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.linalg.{Vectors, Vector}
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.Dataset
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql._
 import org.apache.spark.sql.{SparkSession, SQLContext, DataFrame, Dataset}
 import org.apache.spark.{SparkConf, SparkContext}
 
-import _root_.scala.collection.mutable.ArrayBuffer
-import _root_.scala.util.Random
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
@@ -55,7 +35,7 @@ private[ml] trait SVMParams extends PredictorParams with HasSeed with HasMaxIter
 }
 
 class SVM (
-            override val uid: String)
+    override val uid: String)
   extends Predictor[Vector, SVM, SVMModel] with SVMParams with Serializable {
 
   def this() = this(Identifiable.randomUID("svm"))
@@ -254,9 +234,9 @@ object SVM extends Serializable {
 }
 
 class SVMLinearModel private[ml] (
-                                   override val uid: String,
-                                   val weight: Vector,
-                                   val b: Double)
+    override val uid: String,
+    val weight: Vector,
+    val b: Double)
   extends SVMModel with Serializable {
 
   def predict(v: Vector): Double = {
@@ -270,10 +250,10 @@ class SVMLinearModel private[ml] (
 }
 
 class SVMRbfModel private[ml] (
-                                override val uid: String,
-                                val alpha: Array[Double],
-                                val supportingVectors: Array[LabeledPoint],
-                                val b: Double)
+    override val uid: String,
+    val alpha: Array[Double],
+    val supportingVectors: Array[LabeledPoint],
+    val b: Double)
   extends SVMModel with Serializable {
 
   def predict(v: Vector): Double = {
