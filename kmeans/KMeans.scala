@@ -17,17 +17,17 @@
 
 package org.apache.spark.mllib.clustering
 
-import scala.collection.mutable.ArrayBuffer
-
-import org.apache.spark.Logging
 import org.apache.spark.annotation.Since
-import org.apache.spark.mllib.linalg.{Vector, Vectors, DenseVector, SparseVector}
+import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.linalg.BLAS.{axpy, scal}
+import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector, Vectors}
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.Utils
 import org.apache.spark.util.random.XORShiftRandom
+
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * K-means clustering with support for multiple parallel runs and a k-means++ like initialization

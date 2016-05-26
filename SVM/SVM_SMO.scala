@@ -2,16 +2,13 @@ package org.apache.spark.ml.classification
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.annotation.Since
-import org.apache.spark.ml.param.shared.{HasStepSize, HasTol, HasMaxIter, HasSeed}
-import org.apache.spark.ml.util.Identifiable
-import org.apache.spark.ml.{PredictorParams, Predictor, PredictionModel}
+import org.apache.spark.ml.feature.LabeledPoint
 import org.apache.spark.ml.param._
-import org.apache.spark.mllib.linalg.{Vectors, Vector}
-import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.util.MLUtils
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{SparkSession, SQLContext, DataFrame, Dataset}
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.ml.param.shared.{HasMaxIter, HasSeed, HasTol}
+import org.apache.spark.ml.util.Identifiable
+import org.apache.spark.ml.{PredictionModel, Predictor, PredictorParams}
+import org.apache.spark.ml.linalg.{Vector, Vectors}
+import org.apache.spark.sql.{Dataset, SparkSession}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
@@ -56,7 +53,7 @@ class SVM (
   override protected def train(dataset: Dataset[_]): SVMModel = {
 
     val lpData = extractLabeledPoints(dataset)
-    val subModels = lpData.mapPartitions{ iter => Iterator(train(iter))}.collect()
+    val subModels = lpData.mapPartitions{ iter => Iterator(trainPartition(iter))}.collect()
     if ($(kernelType) == "linear") {
       val count = subModels.length
       val w = subModels.map(_.asInstanceOf[SVMLinearModel].weight.toArray).transpose.map(_.sum).map(d => d / count)
@@ -76,7 +73,7 @@ class SVM (
   }
 
 
-  def train(dataset: Iterator[LabeledPoint]): SVMModel = {
+  def trainPartition(dataset: Iterator[LabeledPoint]): SVMModel = {
     val data = dataset.toArray
 
     val labels = data.map(_.label)
