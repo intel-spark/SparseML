@@ -20,7 +20,7 @@ class SparseLogisticRegressionWithLBFGS
   this.setFeatureScaling(true)
 
   @Since("1.1.0")
-  override val optimizer = new SparseLBFGS(new SparseLogisticGradient, new SquaredL2Updater)
+  override val optimizer = new SparseLBFGS(null, new SquaredL2Updater)
 
   override protected val validators = List(multiLabelValidator)
 
@@ -41,9 +41,9 @@ class SparseLogisticRegressionWithLBFGS
   def setNumClasses(numClasses: Int): this.type = {
     require(numClasses > 1)
     numOfLinearPredictor = numClasses - 1
-    if (numClasses > 2) {
-      optimizer.setGradient(new SparseLogisticGradient(numClasses))
-    }
+//    if (numClasses > 2) {
+//      optimizer.setGradient(new SparseLogisticGradient(numClasses))
+//    }
     this
   }
 
@@ -91,37 +91,38 @@ class SparseLogisticRegressionWithLBFGS
   LogisticRegressionModel = {
     // ml's Logistic regression only supports binary classification currently.
     if (numOfLinearPredictor == 1) {
-      def runWithMlLogisitcRegression(elasticNetParam: Double) = {
-        // Prepare the ml LogisticRegression based on our settings
-        val lr = new org.apache.spark.ml.classification.LogisticRegression()
-        lr.setRegParam(optimizer.getRegParam())
-        lr.setElasticNetParam(elasticNetParam)
-        lr.setStandardization(useFeatureScaling)
-        if (userSuppliedWeights) {
-          val uid = Identifiable.randomUID("logreg-static")
-          lr.setInitialModel(new org.apache.spark.ml.classification.LogisticRegressionModel(
-            uid, initialWeights.asML, 1.0))
-        }
-        lr.setFitIntercept(addIntercept)
-        lr.setMaxIter(optimizer.getNumIterations())
-        lr.setTol(optimizer.getConvergenceTol())
-        // Convert our input into a DataFrame
-        val sqlContext = new SQLContext(input.context)
-        import sqlContext.implicits._
-        val df = input.map(_.asML).toDF()
-        // Determine if we should cache the DF
-        val handlePersistence = input.getStorageLevel == StorageLevel.NONE
-        // Train our model
-        val mlLogisticRegresionModel = lr.train(df, handlePersistence)
-        // convert the model
-        val weights = Vectors.dense(mlLogisticRegresionModel.coefficients.toArray)
-        createModel(weights, mlLogisticRegresionModel.intercept)
-      }
-      optimizer.getUpdater() match {
-        case x: SquaredL2Updater => runWithMlLogisitcRegression(0.0)
-        case x: L1Updater => runWithMlLogisitcRegression(1.0)
-        case _ => super.run(input, initialWeights)
-      }
+//      def runWithMlLogisitcRegression(elasticNetParam: Double) = {
+//        // Prepare the ml LogisticRegression based on our settings
+//        val lr = new org.apache.spark.ml.classification.LogisticRegression()
+//        lr.setRegParam(optimizer.getRegParam())
+//        lr.setElasticNetParam(elasticNetParam)
+//        lr.setStandardization(useFeatureScaling)
+//        if (userSuppliedWeights) {
+//          val uid = Identifiable.randomUID("logreg-static")
+//          lr.setInitialModel(new org.apache.spark.ml.classification.LogisticRegressionModel(
+//            uid, initialWeights.asML, 1.0))
+//        }
+//        lr.setFitIntercept(addIntercept)
+//        lr.setMaxIter(optimizer.getNumIterations())
+//        lr.setTol(optimizer.getConvergenceTol())
+//        // Convert our input into a DataFrame
+//        val sqlContext = new SQLContext(input.context)
+//        import sqlContext.implicits._
+//        val df = input.map(_.asML).toDF()
+//        // Determine if we should cache the DF
+//        val handlePersistence = input.getStorageLevel == StorageLevel.NONE
+//        // Train our model
+//        val mlLogisticRegresionModel = lr.train(df, handlePersistence)
+//        // convert the model
+//        val weights = Vectors.dense(mlLogisticRegresionModel.coefficients.toArray)
+//        createModel(weights, mlLogisticRegresionModel.intercept)
+//      }
+//      optimizer.getUpdater() match {
+//        case x: SquaredL2Updater => runWithMlLogisitcRegression(0.0)
+//        case x: L1Updater => runWithMlLogisitcRegression(1.0)
+//        case _ => super.run(input, initialWeights)
+//      }
+      super.run(input, initialWeights)
     } else {
       super.run(input, initialWeights)
     }

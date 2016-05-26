@@ -17,9 +17,11 @@
 
 package org.apache.spark.mllib.optimization
 
+import breeze.collection.mutable.OpenAddressHashArray
+
 import scala.collection.mutable
 
-import breeze.linalg.{DenseVector => BDV, Vector => BV, SparseVector => BSV}
+import breeze.linalg.{DenseVector => BDV, Vector => BV, SparseVector => BSV, HashVector}
 import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 
 import org.apache.spark.annotation.DeveloperApi
@@ -238,9 +240,9 @@ object SparseLBFGS extends Logging {
       val w = Vectors.fromBreeze(weights)
       val n = w.size
       val bcW = data.context.broadcast(w)
-      val localGradient = gradient
+      val localGradient = new SparseLogisticGradient()
 
-      val initCumGrad = Vectors.sparse(n, Array(), Array())
+      val initCumGrad = new OpenAddressHashArray[Double](n)
       val (gradientSum, lossSum) = data.treeAggregate((initCumGrad, 0.0))(
           seqOp = (c, v) => (c, v) match { case ((grad, loss), (label, features)) =>
             val l = localGradient.compute(
@@ -248,8 +250,9 @@ object SparseLBFGS extends Logging {
             (grad, loss + l)
           },
           combOp = (c1, c2) => (c1, c2) match { case ((grad1, loss1), (grad2, loss2)) =>
-            axpy(1.0, grad2, grad1)
-            (grad1, loss1 + loss2)
+//            axpy(1.0, grad2, grad1)
+            val gradSum = (new HashVector[Double](grad1) + new HashVector[Double](grad2)).array
+            (gradSum, loss1 + loss2)
           })
 
       /**
@@ -280,7 +283,7 @@ object SparseLBFGS extends Logging {
       axpy(-1.0, updater.compute(w, Vectors.zeros(n), 1, 1, regParam)._1, gradientTotal)
 
       // gradientTotal = gradientSum / numExamples + gradientTotal
-      axpy(1.0 / numExamples, gradientSum, gradientTotal)
+      axpy(1.0 / numExamples, Vectors.dense(gradientSum.toArray), gradientTotal)
 
       (loss, gradientTotal.toBreeze.asInstanceOf[BDV[Double]])
     }

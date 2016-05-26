@@ -150,11 +150,11 @@ abstract class SparseGeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
      * have the intercept as part of weights to have consistent design.
      */
     if (numOfLinearPredictor == 1) {
-      Vectors.sparse(numFeatures, Array(), Array())
+      Vectors.zeros(numFeatures)
     } else if (addIntercept) {
       Vectors.sparse((numFeatures + 1) * numOfLinearPredictor, Array(), Array())
     } else {
-      Vectors.sparse(numFeatures * numOfLinearPredictor, Array(), Array())
+      Vectors.zeros(numFeatures * numOfLinearPredictor)
     }
   }
 

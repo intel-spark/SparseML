@@ -20,22 +20,23 @@ object SparseLRTest {
     val conf = new SparkConf().setAppName(s"LogisticRegressionTest with $args").setMaster("local")
     val sc = new SparkContext(conf)
 
-    val dimension = 100000
-    val recordNum = 1000000
+    val dimension = 1000
+    val recordNum = 10000
     val sparsity = 0.01
+    val classNum = 2
 
     val data = sc.parallelize(1 to recordNum).map(i => {
       val ran = new Random()
       val indexArr = (1 to (dimension * sparsity).toInt).map(in => ran.nextInt(dimension)).sorted.toArray
       val valueArr = (1 to (dimension * sparsity).toInt).map(in => ran.nextDouble()).sorted.toArray
       val vec = new SparseVector(dimension, indexArr, valueArr)
-      LabeledPoint(ran.nextInt(10).toDouble, vec)
+      LabeledPoint(ran.nextInt(classNum).toDouble, vec)
     }).cache()
     println(data.count() + " records generated")
 
     val st = System.nanoTime()
-    val model = new LogisticRegressionWithLBFGS()
-      .setNumClasses(10)
+    val model = new SparseLogisticRegressionWithLBFGS()
+      .setNumClasses(classNum)
       .run(data)
 
     println((System.nanoTime() - st) / 1e9 + " seconds cost")
