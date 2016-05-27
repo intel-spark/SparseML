@@ -240,7 +240,7 @@ object SparseLBFGS extends Logging {
       val w = Vectors.fromBreeze(weights)
       val n = w.size
       val bcW = data.context.broadcast(w)
-      val localGradient = new SparseLogisticGradient()
+      val localGradient = new SparseLogisticGradient(n / data.first()._2.size + 1)
 
       val initCumGrad = new OpenAddressHashArray[Double](n)
       val (gradientSum, lossSum) = data.treeAggregate((initCumGrad, 0.0))(

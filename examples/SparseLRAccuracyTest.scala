@@ -27,7 +27,7 @@ object LogisticRegressionTest {
 
     // Run training algorithm to build the model
     val model = new SparseLogisticRegressionWithLBFGS()
-      .setNumClasses(2)
+      .setNumClasses(5)
       .run(training)
 
     // Compute raw scores on the test set.
