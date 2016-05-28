@@ -1,5 +1,4 @@
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.ml.classification.SVM
 import org.apache.spark.mllib.clustering.SparseKMeans
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.regression.LabeledPoint

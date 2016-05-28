@@ -12,10 +12,10 @@ import scala.util.Random
 object KMeanTest {
 
   def main(args: Array[String]) {
-    val conf = new SparkConf().setAppName(s"kmeans: ${args.mkString(",")}")
+    val conf = new SparkConf().setAppName(s"kmeans: ${args.mkString(",")}").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val k = 10
 
+    val k = 10
     val dimension = 10000
     val recordNum = 100000
     val sparsity = 0.001
