@@ -26,7 +26,7 @@ import scala.util.Random
  * An utility object to run K-means locally. This is private to the ML package because it's used
  * in the initialization of KMeans but not meant to be publicly exposed.
  */
-private[mllib] object LocalKMeans extends Logging {
+private[mllib] object SparseLocalKMeans extends Logging {
 
   /**
    * Run K-means++ on the weighted point set `points`. This first does the K-means++
@@ -49,13 +49,13 @@ private[mllib] object LocalKMeans extends Logging {
       // Pick the next center with a probability proportional to cost under current centers
       val curCenters = centers.view.take(i)
       val sum = points.view.zip(weights).map { case (p, w) =>
-        w * KMeans.pointCost(curCenters, p)
+        w * SparseKMeans.pointCost(curCenters, p)
       }.sum
       val r = rand.nextDouble() * sum
       var cumulativeScore = 0.0
       var j = 0
       while (j < points.length && cumulativeScore < r) {
-        cumulativeScore += weights(j) * KMeans.pointCost(curCenters, points(j))
+        cumulativeScore += weights(j) * SparseKMeans.pointCost(curCenters, points(j))
         j += 1
       }
       if (j == 0) {
@@ -78,7 +78,7 @@ private[mllib] object LocalKMeans extends Logging {
       var i = 0
       while (i < points.length) {
         val p = points(i)
-        val index = KMeans.findClosest(centers, p)._1
+        val index = SparseKMeans.findClosest(centers, p)._1
         val brz = p.vector.toBreeze * weights(i) + sums(index).toBreeze
         sums(index) = Vectors.fromBreeze(brz)
         counts(index) += weights(i)
