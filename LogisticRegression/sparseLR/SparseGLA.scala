@@ -152,7 +152,7 @@ abstract class SparseGeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
     if (numOfLinearPredictor == 1) {
       Vectors.zeros(numFeatures)
     } else if (addIntercept) {
-      Vectors.sparse((numFeatures + 1) * numOfLinearPredictor, Array(), Array())
+      Vectors.zeros((numFeatures + 1) * numOfLinearPredictor)
     } else {
       Vectors.zeros(numFeatures * numOfLinearPredictor)
     }

@@ -135,14 +135,6 @@ class SparseLogisticGradient(numClasses: Int) extends Serializable{
             throw new IllegalArgumentException(
               s"weights only supports dense vector but got type ${weights.getClass}.")
         }
-        val cumGradientArray = cumGradient.toArray
-//        match {
-//          case dv: DenseVector => dv.values
-//          case sv: SparseVector => sv.toArray
-//          case _ =>
-//            throw new IllegalArgumentException(
-//              s"cumGradient only supports dense vector but got type ${cumGradient.getClass}.")
-//        }
 
         // marginY is margins(label - 1) in the formula.
         var marginY = 0.0
@@ -192,7 +184,7 @@ class SparseLogisticGradient(numClasses: Int) extends Serializable{
             if (label != 0.0 && label == i + 1) 1.0 else 0.0
           }
           data.foreachActive { (index, value) =>
-            if (value != 0.0) cumGradientArray(i * dataSize + index) += multiplier * value
+            if (value != 0.0) cumGradient(i * dataSize + index) += multiplier * value
           }
         }
 
