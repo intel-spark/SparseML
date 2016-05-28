@@ -17,9 +17,11 @@
 
 package org.apache.spark.mllib.optimization
 
+import breeze.collection.mutable.OpenAddressHashArray
+
 import scala.collection.mutable
 
-import breeze.linalg.{DenseVector => BDV, Vector => BV, SparseVector => BSV}
+import breeze.linalg.{DenseVector => BDV, Vector => BV, SparseVector => BSV, HashVector}
 import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 
 import org.apache.spark.annotation.DeveloperApi
@@ -37,12 +39,11 @@ import org.apache.spark.rdd.RDD
  */
 @DeveloperApi
 class SparseLBFGS(private var gradient: Gradient, private var updater: Updater)
-  extends Optimizer with Logging {
+  extends LBFGS(gradient, updater) with Logging {
 
   private var numCorrections = 10
-  private var convergenceTol = 1E-6
-  private var maxNumIterations = 100
-  private var regParam = 0.0
+
+  var numClasses = 2
 
   /**
    * Set the number of corrections used in the LBFGS update. Default 10.
@@ -51,103 +52,28 @@ class SparseLBFGS(private var gradient: Gradient, private var updater: Updater)
    * 3 < numCorrections < 10 is recommended.
    * Restriction: numCorrections > 0
    */
-  def setNumCorrections(corrections: Int): this.type = {
+  override def setNumCorrections(corrections: Int): this.type = {
     require(corrections > 0,
       s"Number of corrections must be positive but got ${corrections}")
     this.numCorrections = corrections
     this
   }
 
-  /**
-   * Set the convergence tolerance of iterations for L-BFGS. Default 1E-6.
-   * Smaller value will lead to higher accuracy with the cost of more iterations.
-   * This value must be nonnegative. Lower convergence values are less tolerant
-   * and therefore generally cause more iterations to be run.
-   */
-  def setConvergenceTol(tolerance: Double): this.type = {
-    require(tolerance >= 0,
-      s"Convergence tolerance must be nonnegative but got ${tolerance}")
-    this.convergenceTol = tolerance
-    this
-  }
-
-  /*
-   * Get the convergence tolerance of iterations.
-   */
-  private[mllib] def getConvergenceTol(): Double = {
-    this.convergenceTol
-  }
-
-  /**
-   * Set the maximal number of iterations for L-BFGS. Default 100.
-   */
-  def setNumIterations(iters: Int): this.type = {
-    require(iters >= 0,
-      s"Maximum of iterations must be nonnegative but got ${iters}")
-    this.maxNumIterations = iters
-    this
-  }
-
-  /**
-   * Get the maximum number of iterations for L-BFGS. Defaults to 100.
-   */
-  private[mllib] def getNumIterations(): Int = {
-    this.maxNumIterations
-  }
-
-  /**
-   * Set the regularization parameter. Default 0.0.
-   */
-  def setRegParam(regParam: Double): this.type = {
-    require(regParam >= 0,
-      s"Regularization parameter must be nonnegative but got ${regParam}")
-    this.regParam = regParam
-    this
-  }
-
-  /**
-   * Get the regularization parameter.
-   */
-  private[mllib] def getRegParam(): Double = {
-    this.regParam
-  }
-
-  /**
-   * Set the gradient function (of the loss function of one single data example)
-   * to be used for L-BFGS.
-   */
-  def setGradient(gradient: Gradient): this.type = {
-    this.gradient = gradient
-    this
-  }
-
-  /**
-   * Set the updater function to actually perform a gradient step in a given direction.
-   * The updater is responsible to perform the update from the regularization term as well,
-   * and therefore determines what kind or regularization is used, if any.
-   */
-  def setUpdater(updater: Updater): this.type = {
-    this.updater = updater
-    this
-  }
-
-  /**
-   * Returns the updater, limited to internal use.
-   */
-  private[mllib] def getUpdater(): Updater = {
-    updater
-  }
+  def getNumCorrections: Int = this.numCorrections
 
   override def optimize(data: RDD[(Double, Vector)], initialWeights: Vector): Vector = {
+
     val (weights, _) = SparseLBFGS.runLBFGS(
       data,
       gradient,
       updater,
       numCorrections,
-      convergenceTol,
-      maxNumIterations,
-      regParam,
-      initialWeights)
+      this.getConvergenceTol(),
+      this.getNumIterations(),
+      this.getRegParam(),
+      initialWeights,
+      numClasses
+    )
     weights
   }
 
@@ -188,14 +114,15 @@ object SparseLBFGS extends Logging {
       convergenceTol: Double,
       maxNumIterations: Int,
       regParam: Double,
-      initialWeights: Vector): (Vector, Array[Double]) = {
+      initialWeights: Vector,
+      numClasses: Int): (Vector, Array[Double]) = {
 
     val lossHistory = mutable.ArrayBuilder.make[Double]
 
     val numExamples = data.count()
 
     val costFun =
-      new CostFun(data, gradient, updater, regParam, numExamples)
+      new CostFun(data, gradient, updater, regParam, numExamples, numClasses)
 
     val lbfgs = new BreezeLBFGS[BV[Double]](maxNumIterations, numCorrections, convergenceTol)
 
@@ -222,6 +149,8 @@ object SparseLBFGS extends Logging {
     (weights, lossHistoryArray)
   }
 
+  var nc = 0
+
   /**
    * CostFun implements Breeze's DiffFunction[T], which returns the loss and gradient
    * at a particular point (weights). It's used in Breeze's convex optimization routines.
@@ -231,16 +160,21 @@ object SparseLBFGS extends Logging {
     gradient: Gradient,
     updater: Updater,
     regParam: Double,
-    numExamples: Long) extends DiffFunction[BV[Double]] {
+    numExamples: Long,
+    numClasses: Int) extends DiffFunction[BV[Double]] {
 
     override def calculate(weights: BV[Double]): (Double, BDV[Double]) = {
+
+      nc += 1
+      println(s"iteration $nc")
+
       // Have a local copy to avoid the serialization of CostFun object which is not serializable.
       val w = Vectors.fromBreeze(weights)
       val n = w.size
       val bcW = data.context.broadcast(w)
-      val localGradient = gradient
+      val localGradient = new SparseLogisticGradient(numClasses)
 
-      val initCumGrad = Vectors.sparse(n, Array(), Array())
+      val initCumGrad = new OpenAddressHashArray[Double](n)
       val (gradientSum, lossSum) = data.treeAggregate((initCumGrad, 0.0))(
           seqOp = (c, v) => (c, v) match { case ((grad, loss), (label, features)) =>
             val l = localGradient.compute(
@@ -248,7 +182,10 @@ object SparseLBFGS extends Logging {
             (grad, loss + l)
           },
           combOp = (c1, c2) => (c1, c2) match { case ((grad1, loss1), (grad2, loss2)) =>
-            axpy(1.0, grad2, grad1)
+//            axpy(1.0, grad2, grad1)
+            grad2.activeIterator.foreach { case (index, value) =>
+              grad1(index) += value
+            }
             (grad1, loss1 + loss2)
           })
 
@@ -280,7 +217,7 @@ object SparseLBFGS extends Logging {
       axpy(-1.0, updater.compute(w, Vectors.zeros(n), 1, 1, regParam)._1, gradientTotal)
 
       // gradientTotal = gradientSum / numExamples + gradientTotal
-      axpy(1.0 / numExamples, gradientSum, gradientTotal)
+      axpy(1.0 / numExamples, Vectors.dense(gradientSum.toArray), gradientTotal)
 
       (loss, gradientTotal.toBreeze.asInstanceOf[BDV[Double]])
     }

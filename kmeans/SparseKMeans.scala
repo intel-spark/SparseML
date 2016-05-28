@@ -17,17 +17,17 @@
 
 package org.apache.spark.mllib.clustering
 
-import scala.collection.mutable.ArrayBuffer
-
-import org.apache.spark.Logging
 import org.apache.spark.annotation.Since
-import org.apache.spark.mllib.linalg.{Vector, Vectors, DenseVector, SparseVector}
+import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.linalg.BLAS.{axpy, scal}
+import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector, Vectors}
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.Utils
 import org.apache.spark.util.random.XORShiftRandom
+
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * K-means clustering with support for multiple parallel runs and a k-means++ like initialization
@@ -38,7 +38,7 @@ import org.apache.spark.util.random.XORShiftRandom
  * to it should be cached by the user.
  */
 @Since("0.8.0")
-class KMeans private (
+class SparseKMeans private (
     private var k: Int,
     private var maxIterations: Int,
     private var runs: Int,
@@ -52,7 +52,7 @@ class KMeans private (
    * initializationMode: "k-means||", initializationSteps: 5, epsilon: 1e-4, seed: random}.
    */
   @Since("0.8.0")
-  def this() = this(2, 20, 1, KMeans.K_MEANS_PARALLEL, 5, 1e-4, Utils.random.nextLong())
+  def this() = this(2, 20, 1, SparseKMeans.K_MEANS_PARALLEL, 5, 1e-4, Utils.random.nextLong())
 
   /**
    * Number of clusters to create (k).
@@ -97,7 +97,7 @@ class KMeans private (
    */
   @Since("0.8.0")
   def setInitializationMode(initializationMode: String): this.type = {
-    KMeans.validateInitMode(initializationMode)
+    SparseKMeans.validateInitMode(initializationMode)
     this.initializationMode = initializationMode
     this
   }
@@ -194,7 +194,7 @@ class KMeans private (
 
   // Initial cluster centers can be provided as a KMeansModel object rather than using the
   // random or k-means|| initializationMode
-  private var initialModel: Option[KMeansModel] = None
+  private var initialModel: Option[SparseKMeansModel] = None
 
   /**
    * Set the initial starting point, bypassing the random initialization or k-means||
@@ -202,7 +202,7 @@ class KMeans private (
    * in an IllegalArgumentException.
    */
   @Since("1.4.0")
-  def setInitialModel(model: KMeansModel): this.type = {
+  def setInitialModel(model: SparseKMeansModel): this.type = {
     require(model.k == k, "mismatched cluster count")
     initialModel = Some(model)
     this
@@ -213,7 +213,7 @@ class KMeans private (
    * performance, because this is an iterative algorithm.
    */
   @Since("0.8.0")
-  def run(data: RDD[Vector]): KMeansModel = {
+  def run(data: RDD[Vector]): SparseKMeansModel = {
 
     if (data.getStorageLevel == StorageLevel.NONE) {
       logWarning("The input data is not directly cached, which may hurt performance if its"
@@ -240,7 +240,7 @@ class KMeans private (
   /**
    * Implementation of K-Means algorithm.
    */
-  private def runAlgorithm(data: RDD[VectorWithNorm]): KMeansModel = {
+  private def runAlgorithm(data: RDD[VectorWithNorm]): SparseKMeansModel = {
 
     val sc = data.sparkContext
 
@@ -259,7 +259,7 @@ class KMeans private (
         Array(kMeansCenters.clusterCenters.map(s => new VectorWithNorm(s)))
       }
       case None => {
-        if (initializationMode == KMeans.RANDOM) {
+        if (initializationMode == SparseKMeans.RANDOM) {
           initRandom(data)
         } else {
           initKMeansParallel(data)
@@ -282,7 +282,7 @@ class KMeans private (
     while (iteration < maxIterations && !activeRuns.isEmpty) {
       type WeightedPoint = (Vector, Long)
       def mergeContribs(x: WeightedPoint, y: WeightedPoint): WeightedPoint = {
-        val sum = KMeans.xpy(x._1, y._1, centerDSthreshold)
+        val sum = SparseKMeans.xpy(x._1, y._1, centerDSthreshold)
         (sum, x._2 + y._2)
       }
 
@@ -303,9 +303,9 @@ class KMeans private (
 
         points.foreach { point =>
           (0 until runs).foreach { i =>
-            val (bestCenter, cost) = KMeans.findClosest(thisActiveCenters(i), point)
+            val (bestCenter, cost) = SparseKMeans.findClosest(thisActiveCenters(i), point)
             costAccums(i) += cost
-            sums(i)(bestCenter) = KMeans.xpy(sums(i)(bestCenter), point.vector, centerDSthreshold)
+            sums(i)(bestCenter) = SparseKMeans.xpy(sums(i)(bestCenter), point.vector, centerDSthreshold)
             counts(i)(bestCenter) += 1
           }
         }
@@ -327,7 +327,7 @@ class KMeans private (
           if (count != 0) {
             scal(1.0 / count, sum)
             val newCenter = new VectorWithNorm(sum)
-            if (KMeans.fastSquaredDistance(newCenter, centers(run)(j)) > epsilon * epsilon) {
+            if (SparseKMeans.fastSquaredDistance(newCenter, centers(run)(j)) > epsilon * epsilon) {
               changed = true
             }
             centers(run)(j) = newCenter
@@ -358,7 +358,7 @@ class KMeans private (
 
     logInfo(s"The cost for the best run is $minCost.")
 
-    new KMeansModel(centers(bestRun).map(_.vector))
+    new SparseKMeansModel(centers(bestRun).map(_.vector))
   }
 
   /**
@@ -410,7 +410,7 @@ class KMeans private (
       val preCosts = costs
       costs = data.zip(preCosts).map { case (point, cost) =>
         Array.tabulate(runs) { r =>
-          math.min(KMeans.pointCost(bcNewCenters.value(r), point), cost(r))
+          math.min(SparseKMeans.pointCost(bcNewCenters.value(r), point), cost(r))
         }
       }.persist(StorageLevel.MEMORY_AND_DISK)
       val sumCosts = costs
@@ -463,7 +463,7 @@ class KMeans private (
     val bcCenters = data.context.broadcast(centers)
     val weightMap = data.flatMap { p =>
       Iterator.tabulate(runs) { r =>
-        ((r, KMeans.findClosest(bcCenters.value(r), p)._1), 1.0)
+        ((r, SparseKMeans.findClosest(bcCenters.value(r), p)._1), 1.0)
       }
     }.reduceByKey(_ + _).collectAsMap()
 
@@ -472,7 +472,7 @@ class KMeans private (
     val finalCenters = (0 until runs).par.map { r =>
       val myCenters = centers(r).toArray
       val myWeights = (0 until myCenters.length).map(i => weightMap.getOrElse((r, i), 0.0)).toArray
-      LocalKMeans.kMeansPlusPlus(r, myCenters, myWeights, k, 30)
+      SparseLocalKMeans.kMeansPlusPlus(r, myCenters, myWeights, k, 30)
     }
 
     finalCenters.toArray
@@ -484,7 +484,7 @@ class KMeans private (
  * Top-level methods for calling K-means clustering.
  */
 @Since("0.8.0")
-object KMeans {
+object SparseKMeans {
 
   // Initialization mode names
   @Since("0.8.0")
@@ -512,8 +512,8 @@ object KMeans {
       maxIterations: Int,
       runs: Int,
       initializationMode: String,
-      seed: Long): KMeansModel = {
-    new KMeans().setK(k)
+      seed: Long): SparseKMeansModel = {
+    new SparseKMeans().setK(k)
       .setMaxIterations(maxIterations)
       .internalSetRuns(runs)
       .setInitializationMode(initializationMode)
@@ -538,8 +538,8 @@ object KMeans {
       k: Int,
       maxIterations: Int,
       runs: Int,
-      initializationMode: String): KMeansModel = {
-    new KMeans().setK(k)
+      initializationMode: String): SparseKMeansModel = {
+    new SparseKMeans().setK(k)
       .setMaxIterations(maxIterations)
       .internalSetRuns(runs)
       .setInitializationMode(initializationMode)
@@ -553,7 +553,7 @@ object KMeans {
   def train(
       data: RDD[Vector],
       k: Int,
-      maxIterations: Int): KMeansModel = {
+      maxIterations: Int): SparseKMeansModel = {
     train(data, k, maxIterations, 1, K_MEANS_PARALLEL)
   }
 
@@ -565,7 +565,7 @@ object KMeans {
       data: RDD[Vector],
       k: Int,
       maxIterations: Int,
-      runs: Int): KMeansModel = {
+      runs: Int): SparseKMeansModel = {
     train(data, k, maxIterations, runs, K_MEANS_PARALLEL)
   }
 
@@ -615,8 +615,8 @@ object KMeans {
 
   private[spark] def validateInitMode(initMode: String): Boolean = {
     initMode match {
-      case KMeans.RANDOM => true
-      case KMeans.K_MEANS_PARALLEL => true
+      case SparseKMeans.RANDOM => true
+      case SparseKMeans.K_MEANS_PARALLEL => true
       case _ => false
     }
   }
@@ -637,7 +637,7 @@ object KMeans {
 /**
  * A vector with its norm for fast distance computation.
  *
- * @see [[org.apache.spark.mllib.clustering.KMeans#fastSquaredDistance]]
+ * @see [[org.apache.spark.mllib.clustering.SparseKMeans#fastSquaredDistance]]
  */
 private[clustering]
 class VectorWithNorm(val vector: Vector, val norm: Double) extends Serializable {

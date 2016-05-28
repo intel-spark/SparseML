@@ -36,7 +36,7 @@ import org.apache.spark.sql.{Row, SQLContext}
  * A clustering model for K-means. Each point belongs to the cluster with the closest center.
  */
 @Since("0.8.0")
-class KMeansModel @Since("1.1.0") (@Since("1.0.0") val clusterCenters: Array[Vector])
+class SparseKMeansModel @Since("1.1.0") (@Since("1.0.0") val clusterCenters: Array[Vector])
   extends Saveable with Serializable with PMMLExportable {
 
   /**
@@ -56,7 +56,7 @@ class KMeansModel @Since("1.1.0") (@Since("1.0.0") val clusterCenters: Array[Vec
    */
   @Since("0.8.0")
   def predict(point: Vector): Int = {
-    KMeans.findClosest(clusterCentersWithNorm, new VectorWithNorm(point))._1
+    SparseKMeans.findClosest(clusterCentersWithNorm, new VectorWithNorm(point))._1
   }
 
   /**
@@ -66,7 +66,7 @@ class KMeansModel @Since("1.1.0") (@Since("1.0.0") val clusterCenters: Array[Vec
   def predict(points: RDD[Vector]): RDD[Int] = {
     val centersWithNorm = clusterCentersWithNorm
     val bcCentersWithNorm = points.context.broadcast(centersWithNorm)
-    points.map(p => KMeans.findClosest(bcCentersWithNorm.value, new VectorWithNorm(p))._1)
+    points.map(p => SparseKMeans.findClosest(bcCentersWithNorm.value, new VectorWithNorm(p))._1)
   }
 
   /**
@@ -84,7 +84,7 @@ class KMeansModel @Since("1.1.0") (@Since("1.0.0") val clusterCenters: Array[Vec
   def computeCost(data: RDD[Vector]): Double = {
     val centersWithNorm = clusterCentersWithNorm
     val bcCentersWithNorm = data.context.broadcast(centersWithNorm)
-    data.map(p => KMeans.pointCost(bcCentersWithNorm.value, new VectorWithNorm(p))).sum()
+    data.map(p => SparseKMeans.pointCost(bcCentersWithNorm.value, new VectorWithNorm(p))).sum()
   }
 
   private def clusterCentersWithNorm: Iterable[VectorWithNorm] =
@@ -92,18 +92,18 @@ class KMeansModel @Since("1.1.0") (@Since("1.0.0") val clusterCenters: Array[Vec
 
   @Since("1.4.0")
   override def save(sc: SparkContext, path: String): Unit = {
-    KMeansModel.SaveLoadV1_0.save(sc, this, path)
+    SparseKMeansModel.SaveLoadV1_0.save(sc, this, path)
   }
 
   override protected def formatVersion: String = "1.0"
 }
 
 @Since("1.4.0")
-object KMeansModel extends Loader[KMeansModel] {
+object SparseKMeansModel extends Loader[SparseKMeansModel] {
 
   @Since("1.4.0")
-  override def load(sc: SparkContext, path: String): KMeansModel = {
-    KMeansModel.SaveLoadV1_0.load(sc, path)
+  override def load(sc: SparkContext, path: String): SparseKMeansModel = {
+    SparseKMeansModel.SaveLoadV1_0.load(sc, path)
   }
 
   private case class Cluster(id: Int, point: Vector)
@@ -122,7 +122,7 @@ object KMeansModel extends Loader[KMeansModel] {
     private[clustering]
     val thisClassName = "org.apache.spark.mllib.clustering.KMeansModel"
 
-    def save(sc: SparkContext, model: KMeansModel, path: String): Unit = {
+    def save(sc: SparkContext, model: SparseKMeansModel, path: String): Unit = {
       val sqlContext = SQLContext.getOrCreate(sc)
       import sqlContext.implicits._
       val metadata = compact(render(
@@ -134,7 +134,7 @@ object KMeansModel extends Loader[KMeansModel] {
       dataRDD.write.parquet(Loader.dataPath(path))
     }
 
-    def load(sc: SparkContext, path: String): KMeansModel = {
+    def load(sc: SparkContext, path: String): SparseKMeansModel = {
       implicit val formats = DefaultFormats
       val sqlContext = SQLContext.getOrCreate(sc)
       val (className, formatVersion, metadata) = Loader.loadMetadata(sc, path)
@@ -145,7 +145,7 @@ object KMeansModel extends Loader[KMeansModel] {
       Loader.checkSchema[Cluster](centroids.schema)
       val localCentroids = centroids.rdd.map(Cluster.apply).collect()
       assert(k == localCentroids.size)
-      new KMeansModel(localCentroids.sortBy(_.id).map(_.point))
+      new SparseKMeansModel(localCentroids.sortBy(_.id).map(_.point))
     }
   }
 }
