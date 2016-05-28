@@ -117,7 +117,7 @@ class SparseLogisticGradient(numClasses: Int) extends Serializable{
         val margin = -1.0 * dot(data, weights)
         val multiplier = (1.0 / (1.0 + math.exp(margin))) - label
 //        axpy(multiplier, data, cumGradient)
-        data.foreachActive { case (index, value) => cumGradient(index) = multiplier * value + cumGradient(index) }
+        data.foreachActive { case (index, value) => cumGradient(index) += multiplier * value }
         if (label > 0) {
           // The following is equivalent to log(1 + exp(margin)) but more numerically stable.
           MLUtils.log1pExp(margin)

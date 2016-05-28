@@ -10,7 +10,7 @@ import org.apache.spark.{SparkContext, SparkConf}
 /**
  * Created by yuhao on 11/19/15.
  */
-object LogisticRegressionTest {
+object LRAccuracyTest {
 
   def main(args: Array[String]) {
     val conf = new SparkConf().setAppName(s"LogisticRegressionTest with $args").setMaster("local")

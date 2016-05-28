@@ -15,7 +15,7 @@ import org.apache.spark.sql.SQLContext
 import org.apache.spark.storage.StorageLevel
 
 class SparseLogisticRegressionWithLBFGS
-  extends SparseGeneralizedLinearAlgorithm[LogisticRegressionModel] with Serializable {
+  extends GeneralizedLinearAlgorithm[LogisticRegressionModel] with Serializable {
 
   this.setFeatureScaling(true)
 
@@ -41,9 +41,9 @@ class SparseLogisticRegressionWithLBFGS
   def setNumClasses(numClasses: Int): this.type = {
     require(numClasses > 1)
     numOfLinearPredictor = numClasses - 1
-//    if (numClasses > 2) {
-//      optimizer.setGradient(new SparseLogisticGradient(numClasses))
-//    }
+    if (numClasses > 2) {
+      optimizer.numClasses = numClasses
+    }
     this
   }
 
