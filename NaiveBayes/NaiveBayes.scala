@@ -360,7 +360,7 @@ class NaiveBayes private (
         axpy(1, x, d)
         d
       case s: SparseVector =>
-        val sv = Vectors.fromBreeze(x.toBreeze + s.toBreeze)
+        val sv = Vectors.fromBreeze(x.asBreeze + s.asBreeze)
         if(sv.numActives > sv.size * centerDSthreshold) sv.toDense else sv
       case _ => throw new UnsupportedOperationException("unsupported")
     }

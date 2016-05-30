@@ -14,13 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.spark.mllib.clustering
 
-import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.BLAS.scal
-import org.apache.spark.mllib.linalg.Vectors
-
 import scala.util.Random
+
+import org.apache.spark.internal.Logging
+import org.apache.spark.mllib.linalg.BLAS.{axpy, scal}
+import org.apache.spark.mllib.linalg.Vectors
 
 /**
  * An utility object to run K-means locally. This is private to the ML package because it's used
@@ -45,17 +46,15 @@ private[mllib] object SparseLocalKMeans extends Logging {
 
     // Initialize centers by sampling using the k-means++ procedure.
     centers(0) = pickWeighted(rand, points, weights)
+    val costArray = points.map(KMeans.fastSquaredDistance(_, centers(0)))
+
     for (i <- 1 until k) {
-      // Pick the next center with a probability proportional to cost under current centers
-      val curCenters = centers.view.take(i)
-      val sum = points.view.zip(weights).map { case (p, w) =>
-        w * SparseKMeans.pointCost(curCenters, p)
-      }.sum
+      val sum = costArray.zip(weights).map(p => p._1 * p._2).sum
       val r = rand.nextDouble() * sum
       var cumulativeScore = 0.0
       var j = 0
       while (j < points.length && cumulativeScore < r) {
-        cumulativeScore += weights(j) * SparseKMeans.pointCost(curCenters, points(j))
+        cumulativeScore += weights(j) * costArray(j)
         j += 1
       }
       if (j == 0) {
@@ -65,6 +64,12 @@ private[mllib] object SparseLocalKMeans extends Logging {
       } else {
         centers(i) = points(j - 1)
       }
+
+      // update costArray
+      for (p <- points.indices) {
+        costArray(p) = math.min(KMeans.fastSquaredDistance(points(p), centers(i)), costArray(p))
+      }
+
     }
 
     // Run up to maxIterations iterations of Lloyd's algorithm
@@ -79,7 +84,7 @@ private[mllib] object SparseLocalKMeans extends Logging {
       while (i < points.length) {
         val p = points(i)
         val index = SparseKMeans.findClosest(centers, p)._1
-        val brz = p.vector.toBreeze * weights(i) + sums(index).toBreeze
+        val brz = p.vector.asBreeze * weights(i) + sums(index).asBreeze
         sums(index) = Vectors.fromBreeze(brz)
         counts(index) += weights(i)
         if (index != oldClosest(i)) {

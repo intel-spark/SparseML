@@ -17,6 +17,8 @@
 
 package org.apache.spark.mllib.clustering
 
+import scala.collection.mutable.ArrayBuffer
+
 import org.apache.spark.annotation.Since
 import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.linalg.BLAS.{axpy, scal}
@@ -27,12 +29,9 @@ import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.Utils
 import org.apache.spark.util.random.XORShiftRandom
 
-import scala.collection.mutable.ArrayBuffer
-
 /**
- * K-means clustering with support for multiple parallel runs and a k-means++ like initialization
- * mode (the k-means|| algorithm by Bahmani et al). When multiple concurrent runs are requested,
- * they are executed together with joint passes over the data for efficiency.
+ * K-means clustering with a k-means++ like initialization mode
+ * (the k-means|| algorithm by Bahmani et al).
  *
  * This is an iterative algorithm that will make multiple passes over the data, so any RDDs given
  * to it should be cached by the user.
@@ -65,6 +64,8 @@ class SparseKMeans private (
    */
   @Since("0.8.0")
   def setK(k: Int): this.type = {
+    require(k > 0,
+      s"Number of clusters must be positive but got ${k}")
     this.k = k
     this
   }
@@ -80,6 +81,8 @@ class SparseKMeans private (
    */
   @Since("0.8.0")
   def setMaxIterations(maxIterations: Int): this.type = {
+    require(maxIterations >= 0,
+      s"Maximum of iterations must be nonnegative but got ${maxIterations}")
     this.maxIterations = maxIterations
     this
   }
@@ -103,23 +106,21 @@ class SparseKMeans private (
   }
 
   /**
-   * :: Experimental ::
-   * Number of runs of the algorithm to execute in parallel.
+   * This function has no effect since Spark 2.0.0.
    */
   @Since("1.4.0")
-  @deprecated("Support for runs is deprecated. This param will have no effect in 2.0.0.", "1.6.0")
-  def getRuns: Int = runs
+  def getRuns: Int = {
+    logWarning("Getting number of runs has no effect since Spark 2.0.0.")
+    runs
+  }
 
   /**
-   * :: Experimental ::
-   * Set the number of runs of the algorithm to execute in parallel. We initialize the algorithm
-   * this many times with random starting conditions (configured by the initialization mode), then
-   * return the best clustering found over any run. Default: 1.
+   * This function has no effect since Spark 2.0.0.
    */
   @Since("0.8.0")
-  @deprecated("Support for runs is deprecated. This param will have no effect in 2.0.0.", "1.6.0")
   def setRuns(runs: Int): this.type = {
-    internalSetRuns(runs)
+    logWarning("Setting number of runs has no effect since Spark 2.0.0.")
+    this
   }
 
   var centerDSthreshold = 1e-4
@@ -154,9 +155,8 @@ class SparseKMeans private (
    */
   @Since("0.8.0")
   def setInitializationSteps(initializationSteps: Int): this.type = {
-    if (initializationSteps <= 0) {
-      throw new IllegalArgumentException("Number of initialization steps must be positive")
-    }
+    require(initializationSteps > 0,
+      s"Number of initialization steps must be positive but got ${initializationSteps}")
     this.initializationSteps = initializationSteps
     this
   }
@@ -173,6 +173,8 @@ class SparseKMeans private (
    */
   @Since("0.8.0")
   def setEpsilon(epsilon: Double): this.type = {
+    require(epsilon >= 0,
+      s"Distance threshold must be nonnegative but got ${epsilon}")
     this.epsilon = epsilon
     this
   }
@@ -255,16 +257,14 @@ class SparseKMeans private (
     }
 
     val centers = initialModel match {
-      case Some(kMeansCenters) => {
+      case Some(kMeansCenters) =>
         Array(kMeansCenters.clusterCenters.map(s => new VectorWithNorm(s)))
-      }
-      case None => {
+      case None =>
         if (initializationMode == SparseKMeans.RANDOM) {
           initRandom(data)
         } else {
           initKMeansParallel(data)
         }
-      }
     }
     val initTimeInSeconds = (System.nanoTime() - initStartTime) / 1e9
     logInfo(s"Initialization with $initializationMode took " + "%.3f".format(initTimeInSeconds) +
@@ -287,7 +287,7 @@ class SparseKMeans private (
       }
 
       val activeCenters = activeRuns.map(r => centers(r)).toArray
-      val costAccums = activeRuns.map(_ => sc.accumulator(0.0))
+      val costAccums = activeRuns.map(_ => sc.doubleAccumulator)
 
       val bcActiveCenters = sc.broadcast(activeCenters)
 
@@ -304,8 +304,8 @@ class SparseKMeans private (
         points.foreach { point =>
           (0 until runs).foreach { i =>
             val (bestCenter, cost) = SparseKMeans.findClosest(thisActiveCenters(i), point)
-            costAccums(i) += cost
-            sums(i)(bestCenter) = SparseKMeans.xpy(sums(i)(bestCenter), point.vector, centerDSthreshold)
+            costAccums(i).add(cost)
+            sums(i)(bestCenter) = SparseKMeans.xpy(point.vector, sums(i)(bestCenter), centerDSthreshold)
             counts(i)(bestCenter) += 1
           }
         }
@@ -368,7 +368,9 @@ class SparseKMeans private (
   : Array[Array[VectorWithNorm]] = {
     // Sample all the cluster centers in one pass to avoid repeated scans
     val sample = data.takeSample(true, runs * k, new XORShiftRandom(this.seed).nextInt()).toSeq
-    Array.tabulate(runs)(r => sample.slice(r * k, (r + 1) * k).toArray)
+    Array.tabulate(runs)(r => sample.slice(r * k, (r + 1) * k).map { v =>
+      new VectorWithNorm(Vectors.dense(v.vector.toArray), v.norm)
+    }.toArray)
   }
 
   /**
@@ -389,6 +391,8 @@ class SparseKMeans private (
     // Initialize each run's first center to a random point.
     val seed = new XORShiftRandom(this.seed).nextInt()
     val sample = data.takeSample(true, runs, seed).toSeq
+    // Could be empty if data is empty; fail with a better message early:
+    require(sample.size >= runs, s"Required $runs samples but got ${sample.size} from $data")
     val newCenters = Array.tabulate(runs)(r => ArrayBuffer(sample(r)))
 
     /** Merges new centers to centers. */
@@ -498,8 +502,7 @@ object SparseKMeans {
    * @param data Training points as an `RDD` of `Vector` types.
    * @param k Number of clusters to create.
    * @param maxIterations Maximum number of iterations allowed.
-   * @param runs Number of runs to execute in parallel. The best model according to the cost
-   *             function will be returned. (default: 1)
+   * @param runs This param has no effect since Spark 2.0.0.
    * @param initializationMode The initialization algorithm. This can either be "random" or
    *                           "k-means||". (default: "k-means||")
    * @param seed Random seed for cluster initialization. Default is to generate seed based
@@ -515,7 +518,6 @@ object SparseKMeans {
       seed: Long): SparseKMeansModel = {
     new SparseKMeans().setK(k)
       .setMaxIterations(maxIterations)
-      .internalSetRuns(runs)
       .setInitializationMode(initializationMode)
       .setSeed(seed)
       .run(data)
@@ -527,8 +529,7 @@ object SparseKMeans {
    * @param data Training points as an `RDD` of `Vector` types.
    * @param k Number of clusters to create.
    * @param maxIterations Maximum number of iterations allowed.
-   * @param runs Number of runs to execute in parallel. The best model according to the cost
-   *             function will be returned. (default: 1)
+   * @param runs This param has no effect since Spark 2.0.0.
    * @param initializationMode The initialization algorithm. This can either be "random" or
    *                           "k-means||". (default: "k-means||")
    */
@@ -541,7 +542,6 @@ object SparseKMeans {
       initializationMode: String): SparseKMeansModel = {
     new SparseKMeans().setK(k)
       .setMaxIterations(maxIterations)
-      .internalSetRuns(runs)
       .setInitializationMode(initializationMode)
       .run(data)
   }
@@ -627,7 +627,7 @@ object SparseKMeans {
         axpy(1, x, d)
         d
       case s: SparseVector =>
-        val sv = Vectors.fromBreeze(x.toBreeze + s.toBreeze)
+        val sv = Vectors.fromBreeze(x.asBreeze + s.asBreeze)
         if(sv.numActives > sv.size * centerDSthreshold) sv.toDense else sv
       case _ => throw new UnsupportedOperationException("unsupported")
     }

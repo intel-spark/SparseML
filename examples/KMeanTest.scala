@@ -1,3 +1,4 @@
+import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.clustering.{KMeans, SparseKMeans}
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
@@ -12,14 +13,18 @@ import scala.util.Random
 object KMeanTest {
 
   def main(args: Array[String]) {
+    Logger.getLogger("org").setLevel(Level.WARN)
+    Logger.getLogger("akka").setLevel(Level.WARN)
+
     val conf = new SparkConf().setAppName(s"kmeans: ${args.mkString(",")}").setMaster("local[4]")
     val sc = new SparkContext(conf)
 
-    val k = 10
-    val dimension = 10000
-    val recordNum = 100000
-    val sparsity = 0.001
-    val iterations = 10
+    val k = args(0).toInt
+    val dimension = args(1).toInt
+    val recordNum = args(2).toInt
+    val sparsity = args(3).toDouble
+    val iterations = args(4).toInt
+    val means = args(5)
 
     val data: RDD[Vector] = sc.parallelize(1 to recordNum).map(i => {
       val ran = new Random()
@@ -32,16 +37,30 @@ object KMeanTest {
 
     val st = System.nanoTime()
 
-    val model = new KMeans()
-      .setK(k)
-      .setInitializationMode("k-means||")
-      .setMaxIterations(iterations)
-      .run(data)
 
-    println((System.nanoTime() - st) / 1e9 + " seconds cost")
-    println("final clusters:")
-    println(model.clusterCenters.map(v => v.numNonzeros).mkString("\n"))
+    if(means == "my") {
+      println("running sparse kmeans")
+      val model = new SparseKMeans()
+        .setK(k)
+        .setInitializationMode("random")
+        .setMaxIterations(iterations)
+        .run(data)
 
+      println((System.nanoTime() - st) / 1e9 + " seconds cost")
+      println("final clusters:")
+      println(model.clusterCenters.map(v => v.numNonzeros).mkString("\n"))
+    } else {
+      println("running mllib kmeans")
+      val model = new KMeans()
+        .setK(k)
+        .setInitializationMode("random")
+        .setMaxIterations(iterations)
+        .run(data)
+
+      println((System.nanoTime() - st) / 1e9 + " seconds cost")
+      println("final clusters:")
+      println(model.clusterCenters.map(v => v.numNonzeros).mkString("\n"))
+    }
 
     sc.stop()
   }
