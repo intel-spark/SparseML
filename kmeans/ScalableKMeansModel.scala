@@ -14,29 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.spark.mllib.clustering
 
-import scala.collection.JavaConverters._
-
-import org.json4s._
-import org.json4s.JsonDSL._
-import org.json4s.jackson.JsonMethods._
-
-import org.apache.spark.SparkContext
 import org.apache.spark.annotation.Since
-import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.mllib.pmml.PMMLExportable
-import org.apache.spark.mllib.util.{Loader, Saveable}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Row, SparkSession}
 
 /**
  * A clustering model for K-means. Each point belongs to the cluster with the closest center.
  */
 @Since("0.8.0")
-class SparseKMeansModel @Since("1.1.0") (@Since("1.0.0")override val clusterCenters: Array[Vector])
+class ScalableKMeansModel @Since("1.1.0") (@Since("1.0.0")override val clusterCenters: Array[Vector])
   extends KMeansModel(clusterCenters) with Serializable with PMMLExportable {
 
   /**
@@ -44,7 +33,7 @@ class SparseKMeansModel @Since("1.1.0") (@Since("1.0.0")override val clusterCent
    */
   @Since("0.8.0")
   override def predict(point: Vector): Int = {
-    SparseKMeans.findClosest(clusterCentersWithNorm, new VectorWithNorm(point))._1
+    ScalableKMeans.findClosest(clusterCentersWithNorm, new VectorWithNorm(point))._1
   }
 
   /**
@@ -54,7 +43,7 @@ class SparseKMeansModel @Since("1.1.0") (@Since("1.0.0")override val clusterCent
   override def predict(points: RDD[Vector]): RDD[Int] = {
     val centersWithNorm = clusterCentersWithNorm
     val bcCentersWithNorm = points.context.broadcast(centersWithNorm)
-    points.map(p => SparseKMeans.findClosest(bcCentersWithNorm.value, new VectorWithNorm(p))._1)
+    points.map(p => ScalableKMeans.findClosest(bcCentersWithNorm.value, new VectorWithNorm(p))._1)
   }
 
 
@@ -66,7 +55,7 @@ class SparseKMeansModel @Since("1.1.0") (@Since("1.0.0")override val clusterCent
   override def computeCost(data: RDD[Vector]): Double = {
     val centersWithNorm = clusterCentersWithNorm
     val bcCentersWithNorm = data.context.broadcast(centersWithNorm)
-    data.map(p => SparseKMeans.pointCost(bcCentersWithNorm.value, new VectorWithNorm(p))).sum()
+    data.map(p => ScalableKMeans.pointCost(bcCentersWithNorm.value, new VectorWithNorm(p))).sum()
   }
 
   private def clusterCentersWithNorm: Iterable[VectorWithNorm] =

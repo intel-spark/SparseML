@@ -1,4 +1,4 @@
-# SparseSpark
+# SparseML
 
 Yuhao Yang (yuhao.yang@intel.com)
 <br><br>
@@ -22,15 +22,12 @@ in the context of sparse data support on Spark MLlib.
 ## Usage:
 The class/function signature remains the same as in Spark MLlib. Please refer to the examples folder
 
-## Benchmark
-
-Thought the concrete performance improvements depends on the sparsity of the dataset. The algorithms
+## Performance:
+Although the concrete performance improvements depends on the sparsity of the dataset. The algorithms
 in SparseSpark generally significantly reduce the time and memory consumption compared with the original
 Spark implementation.
-Some examples:
-
 
 
 ## Accuracy
-The optimization does not affect the accuracy. It yields the same result with the original Spark version,
-yet with much less resources.
+The optimization does not affect the accuracy. It yields the same result with the Spark version,
+yet with less computation resources.
