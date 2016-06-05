@@ -19,9 +19,8 @@ package org.apache.spark.mllib.clustering
 
 import java.util
 
-
-import org.apache.spark.annotation.Since
 import org.apache.spark.internal.Logging
+import org.apache.spark.annotation.Since
 import org.apache.spark.mllib.linalg.BLAS._
 import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector, Vectors}
 import org.apache.spark.mllib.util.MLUtils
@@ -107,7 +106,7 @@ class ScalableKMeans extends KMeans with Logging {
       runs
     }
 
-    val centers = initialModel match {
+    val initCenters = initialModel match {
       case Some(kMeansCenters) =>
         Array(kMeansCenters.clusterCenters.map(s => new VectorWithNorm(s)))
       case None =>
@@ -118,7 +117,7 @@ class ScalableKMeans extends KMeans with Logging {
         }
     }
 
-    var centersRDD = sc.parallelize(centers(0)).zipWithIndex
+    var centers = sc.parallelize(initCenters(0))
 
     val initTimeInSeconds = (System.nanoTime() - initStartTime) / 1e9
     logInfo(s"Initialization with ${this.getInitializationMode} took " + "%.3f".format(initTimeInSeconds) +
@@ -137,24 +136,22 @@ class ScalableKMeans extends KMeans with Logging {
         (y._1, x._2 + y._2)
       }
 
-      val joined = data.cartesian(centersRDD)
-
-      val nearest = joined.map { case (point, center) =>
-        (point.vector, (center._2, ScalableKMeans.fastSquaredDistance(point, center._1)))
+      val pointWithCenter = data.cartesian(centers).map { case (point, center) =>
+        (point, (center, ScalableKMeans.fastSquaredDistance(point, center)))
       }.reduceByKey { case((c1, d1), (c2, d2)) =>
         if(d1 < d2) (c1, d1) else (c2, d2)
-      }.map { case(point, (center, dist)) =>
-        (center, (point, 1L))
       }
 
-      val resultSum = nearest.reduceByKey(mergeContribs)
+      val sumByCenter = pointWithCenter.map { case (point, (center, dist)) =>
+        (center, (point.vector, 1L))
+      }.reduceByKey(mergeContribs)
 
-      centersRDD = resultSum.map { case (center, (sum, count)) =>
+      val newCenters = sumByCenter.map { case (center, (sum, count)) =>
         val c = scal(1.0 / count, sum)
         new VectorWithNorm(sum)
-      }.zipWithIndex()
+      }
 
-      centersRDD = sc.parallelize(centersRDD.collect())
+      centers = sc.parallelize(newCenters.collect())
       iteration += 1
     }
 
@@ -167,7 +164,7 @@ class ScalableKMeans extends KMeans with Logging {
       logInfo(s"KMeans converged in $iteration iterations.")
     }
 
-    new ScalableKMeansModel(centersRDD.map(_._1.vector).collect())
+    new ScalableKMeansModel(centers.map(_.vector).collect())
   }
 
   /**
