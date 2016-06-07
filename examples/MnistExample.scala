@@ -1,5 +1,5 @@
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.mllib.clustering.SparseKMeans
+import org.apache.spark.mllib.clustering.{KMeans, ScalableKMeans, SparseKMeans}
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.sql.SparkSession
@@ -16,10 +16,10 @@ object MnistExample {
       .map(line => line.split(",")).map(arr => arr.map(_.toDouble))
       .map(arr =>  Vectors.dense(arr.slice(1, 785)))
 
-    val model = new SparseKMeans()
+    val model = new KMeans()
       .setK(10)
       .setInitializationMode("random")
-      .setMaxIterations(100)
+      .setMaxIterations(10)
       .run(trainRDD)
 
     println("final clusters:")

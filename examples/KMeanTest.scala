@@ -1,5 +1,5 @@
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.mllib.clustering.{KMeans, SparseKMeans}
+import org.apache.spark.mllib.clustering.{ScalableKMeans, KMeans, SparseKMeans}
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
@@ -16,7 +16,7 @@ object KMeanTest {
     Logger.getLogger("org").setLevel(Level.WARN)
     Logger.getLogger("akka").setLevel(Level.WARN)
 
-    val conf = new SparkConf().setAppName(s"kmeans: ${args.mkString(",")}").setMaster("local[4]")
+    val conf = new SparkConf().setAppName(s"kmeans: ${args.mkString(",")}")
     val sc = new SparkContext(conf)
 
     val k = args(0).toInt
@@ -33,14 +33,14 @@ object KMeanTest {
       val vec: Vector = new SparseVector(dimension, indexArr, valueArr)
       vec
     }).cache()
+    println(args.mkString(", "))
     println(data.count() + " records generated")
 
     val st = System.nanoTime()
 
-
     if(means == "my") {
-      println("running sparse kmeans")
-      val model = new SparseKMeans()
+      println("running scalable kmeans")
+      val model = new ScalableKMeans()
         .setK(k)
         .setInitializationMode("random")
         .setMaxIterations(iterations)
