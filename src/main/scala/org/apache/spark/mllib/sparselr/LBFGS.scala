@@ -3,8 +3,9 @@ package org.apache.spark.mllib.sparselr
 import scala.collection.mutable
 import breeze.linalg.{DenseVector => BDV}
 import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
-import org.apache.spark.{SparkEnv, Logging}
+import org.apache.spark.SparkEnv
 import org.apache.spark.annotation.DeveloperApi
+import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.sparselr.Utils._
 

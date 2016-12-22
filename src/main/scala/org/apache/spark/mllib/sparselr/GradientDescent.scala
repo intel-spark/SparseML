@@ -1,9 +1,11 @@
 package org.apache.spark.mllib.sparselr
 
 import org.apache.spark.mllib.sparselr.Utils._
+
 import scala.collection.mutable.ArrayBuffer
-import org.apache.spark.annotation.{Experimental, DeveloperApi}
-import org.apache.spark.{SparkEnv, Logging}
+import org.apache.spark.annotation.{DeveloperApi, Experimental}
+import org.apache.spark.SparkEnv
+import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 
 /**

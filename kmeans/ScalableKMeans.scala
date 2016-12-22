@@ -91,9 +91,9 @@ class ScalableKMeans extends KMeans with Logging {
   /**
    * Implementation of K-Means algorithm.
    */
-  private def runAlgorithm(data: RDD[VectorWithNorm]): ScalableKMeansModel = {
+  private def runAlgorithm(rawData: RDD[VectorWithNorm]): ScalableKMeansModel = {
 
-    val sc = data.sparkContext
+    val sc = rawData.sparkContext
 
     val initStartTime = System.nanoTime()
     val runs = this.getRuns
@@ -111,13 +111,14 @@ class ScalableKMeans extends KMeans with Logging {
         Array(kMeansCenters.clusterCenters.map(s => new VectorWithNorm(s)))
       case None =>
         if (this.getInitializationMode == ScalableKMeans.RANDOM) {
-          initRandom(data)
+          initRandom(rawData)
         } else {
-          initKMeansParallel(data)
+          initKMeansParallel(rawData)
         }
     }
 
-    var centers = sc.parallelize(initCenters(0))
+    var centers = sc.parallelize(initCenters(0)).map(c => c.vector)
+    val data = rawData.map(d => d.vector)
 
     val initTimeInSeconds = (System.nanoTime() - initStartTime) / 1e9
     logInfo(s"Initialization with ${this.getInitializationMode} took " + "%.3f".format(initTimeInSeconds) +
@@ -132,23 +133,29 @@ class ScalableKMeans extends KMeans with Logging {
     while (iteration < maxIterations) {
       type WeightedPoint = (Vector, Long)
       def mergeContribs(x: WeightedPoint, y: WeightedPoint): WeightedPoint = {
-        axpy(1.0, x._1, y._1)
-        (y._1, x._2 + y._2)
+        val dense = y._1.toDense
+        axpy(1.0, x._1, dense)
+        (dense, x._2 + y._2)
       }
 
       val pointWithCenter = data.cartesian(centers).map { case (point, center) =>
-        (point, (center, ScalableKMeans.fastSquaredDistance(point, center)))
+        (point, (center, Vectors.sqdist(point, center)))
       }.reduceByKey { case((c1, d1), (c2, d2)) =>
         if(d1 < d2) (c1, d1) else (c2, d2)
       }
 
+      //println("pointWithCenter: " + pointWithCenter.collect().mkString("\n"))
+
       val sumByCenter = pointWithCenter.map { case (point, (center, dist)) =>
-        (center, (point.vector, 1L))
+        (center, (point, 1L))
       }.reduceByKey(mergeContribs)
 
+//      println()
+//      println("sumByCenter: " + sumByCenter.collect().mkString("\n"))
+
       val newCenters = sumByCenter.map { case (center, (sum, count)) =>
-        val c = scal(1.0 / count, sum)
-        new VectorWithNorm(sum)
+        scal(1.0 / count, sum)
+        sum
       }
 
       centers = sc.parallelize(newCenters.collect())
@@ -164,7 +171,7 @@ class ScalableKMeans extends KMeans with Logging {
       logInfo(s"KMeans converged in $iteration iterations.")
     }
 
-    new ScalableKMeansModel(centers.map(_.vector).collect())
+    new ScalableKMeansModel(centers.collect())
   }
 
   /**
@@ -432,32 +439,38 @@ object ScalableKMeans {
 
 }
 
-/**
- * A vector with its norm for fast distance computation.
- *
- * @see [[org.apache.spark.mllib.clustering.ScalableKMeans#fastSquaredDistance]]
- */
-private[clustering]
-class VectorWithNorm(val vector: Vector, val norm: Double) extends Serializable {
-
-  def this(vector: Vector) = this(vector, Vectors.norm(vector, 2.0))
-
-  def this(array: Array[Double]) = this(Vectors.dense(array))
-
-  override def equals(other: Any): Boolean = {
-    other match {
-      case v2: VectorWithNorm =>
-        this.vector.equals(v2.vector)
-      case _ => false
-    }
-  }
-
-  override def hashCode(): Int = {
-    // This is a reference implementation. It calls return in foreachActive, which is slow.
-    // Subclasses should override it with optimized implementation.
-    this.vector.hashCode()
-  }
-
-  /** Converts the vector to a dense vector. */
-  def toDense: VectorWithNorm = new VectorWithNorm(Vectors.dense(vector.toArray), norm)
-}
+///**
+// * A vector with its norm for fast distance computation.
+// *
+// * @see [[org.apache.spark.mllib.clustering.ScalableKMeans#fastSquaredDistance]]
+// */
+//private[clustering]
+//class VectorWithNorm(val vector: Vector, val norm: Double) extends Serializable {
+//
+//  def this(vector: Vector) = this(vector, Vectors.norm(vector, 2.0))
+//
+//  def this(array: Array[Double]) = this(Vectors.dense(array))
+//
+//  override def equals(other: Any): Boolean = {
+//    other match {
+//      case v2: VectorWithNorm =>
+//        this.vector.equals(v2.vector)
+//      case _ => false
+//    }
+//  }
+//
+//  override def hashCode(): Int = {
+//    // This is a reference implementation. It calls return in foreachActive, which is slow.
+//    // Subclasses should override it with optimized implementation.
+//    this.vector.hashCode()
+//  }
+//
+//  override def toString(): String = {
+//    // This is a reference implementation. It calls return in foreachActive, which is slow.
+//    // Subclasses should override it with optimized implementation.
+//    this.vector.toString
+//  }
+//
+//  /** Converts the vector to a dense vector. */
+//  def toDense: VectorWithNorm = new VectorWithNorm(Vectors.dense(vector.toArray), norm)
+//}
