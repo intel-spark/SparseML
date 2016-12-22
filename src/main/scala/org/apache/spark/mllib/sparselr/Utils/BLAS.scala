@@ -1,6 +1,7 @@
 package org.apache.spark.mllib.sparselr.Utils
 
-import org.apache.spark.Logging
+import org.apache.spark.internal.Logging
+
 
 object BLAS extends Serializable with Logging{
   def dot(a: Double, y: Vector): Unit = {
